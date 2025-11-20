@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "../lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Wrench, LogOut, ShieldCheck, Briefcase } from "lucide-react";
 import BookingDialog from "./BookingDialog";
@@ -33,14 +33,17 @@ const Header = () => {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/10 bg-background/70 backdrop-blur-lg supports-[backdrop-filter]:bg-background/60 shadow-sm">
       <div className="container flex h-16 items-center justify-between px-4">
-        <div className="flex items-center gap-2">
+        <button 
+          onClick={() => navigate("/")} 
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary-glow flex items-center justify-center shadow-[var(--shadow-primary)] transition-transform duration-300 hover:scale-105 hover:rotate-3">
             <Wrench className="w-5 h-5 text-primary-foreground" />
           </div>
           <span className="text-xl font-bold">
             Home<span className="text-primary">Mend</span>
           </span>
-        </div>
+        </button>
 
         <nav className="hidden md:flex items-center gap-6 flex-1 ml-8">
           <a href="#services" className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
