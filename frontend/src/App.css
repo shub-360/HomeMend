@@ -40,3 +40,28 @@
 .read-the-docs {
   color: #888;
 }
+
+@keyframes floaty {
+  0% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-18px) translateX(10px);
+    opacity: 0.7;
+  }
+  100% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.4;
+  }
+}
+
+.particle {
+  animation: floaty 6s ease-in-out infinite;
+}
+
+.particle:nth-child(1) { animation-duration: 7s; }
+.particle:nth-child(2) { animation-duration: 5.5s; }
+.particle:nth-child(3) { animation-duration: 6.5s; }
+.particle:nth-child(4) { animation-duration: 8s; }
+.particle:nth-child(5) { animation-duration: 5s; }

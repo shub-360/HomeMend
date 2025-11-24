@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight } from "lucide-react";
 import BookingDialog from "./BookingDialog";
+
 import computerImg from "@/assets/service-computer.jpg";
 import tvImg from "@/assets/service-tv.jpg";
 import mobileImg from "@/assets/service-mobile.jpg";
@@ -82,58 +83,66 @@ const Services = () => {
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedServiceTitle, setSelectedServiceTitle] = useState("");
   const [hoveredCard, setHoveredCard] = useState(null);
-  const [mousePosition, setMousePosition] = useState({ x: 0.5, y: 0.5 });
-  const [targetPosition, setTargetPosition] = useState({ x: 0.5, y: 0.5 });
+
+  // LERP tilt animation refs
+  const tiltRef = useRef({ x: 0, y: 0 });
+  const targetTiltRef = useRef({ x: 0, y: 0 });
+  const animationFrame = useRef(null);
 
   const handleBookNow = (serviceTitle) => {
     setSelectedServiceTitle(serviceTitle);
     setBookingOpen(true);
   };
 
-  // ⭐ Smooth lerp animation using RAF
-  useEffect(() => {
-    let rafId;
-    const lerp = (start, end, factor) => start + (end - start) * factor;
-
-    const animate = () => {
-      setMousePosition((prev) => ({
-        x: lerp(prev.x, targetPosition.x, 0.18),
-        y: lerp(prev.y, targetPosition.y, 0.18),
-      }));
-      rafId = requestAnimationFrame(animate);
-    };
-
-    rafId = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(rafId);
-  }, [targetPosition]);
-
+  // ⭐ Smooth tilt Handler
   const handleMouseMove = (e, index) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) / rect.width;
     const y = (e.clientY - rect.top) / rect.height;
-    setTargetPosition({ x, y });
+
+    const tilt = 30;
+
+    targetTiltRef.current = {
+      x: (x - 0.5) * tilt,
+      y: (0.5 - y) * tilt,
+    };
+
     setHoveredCard(index);
   };
 
   const handleMouseLeave = () => {
     setHoveredCard(null);
-    setTargetPosition({ x: 0.5, y: 0.5 });
+    targetTiltRef.current = { x: 0, y: 0 };
   };
 
-  // ⭐ Enhanced 3D Transform with smooth easing
-  const getCardTransform = (index) => {
-    if (hoveredCard !== index) return {
-      transform: 'perspective(1400px) rotateX(0deg) rotateY(0deg) scale(1)',
-      transition: 'transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
+  // ⭐ Smooth LERP loop
+  useEffect(() => {
+    const lerp = (a, b, n) => a + (b - a) * n;
+
+    const animate = () => {
+      tiltRef.current.x = lerp(tiltRef.current.x, targetTiltRef.current.x, 0.12);
+      tiltRef.current.y = lerp(tiltRef.current.y, targetTiltRef.current.y, 0.12);
+
+      animationFrame.current = requestAnimationFrame(animate);
     };
 
-    const tilt = 25; // Reduced tilt for subtle effect
-    const rotateX = (mousePosition.y - 0.5) * -tilt;
-    const rotateY = (mousePosition.x - 0.5) * tilt;
+    animationFrame.current = requestAnimationFrame(animate);
+
+    return () => cancelAnimationFrame(animationFrame.current);
+  }, []);
+
+  // ⭐ Transform using LERP values
+  const getCardTransform = (index) => {
+    if (hoveredCard !== index) {
+      return {
+        transform: `perspective(1400px) rotateX(${tiltRef.current.y}deg) rotateY(${tiltRef.current.x}deg) scale(1)`,
+        transition: "transform 0.25s ease-out",
+      };
+    }
 
     return {
-      transform: `perspective(1400px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(1.08)`,
-      transition: 'transform 0.1s ease-out',
+      transform: `perspective(1400px) rotateX(${tiltRef.current.y}deg) rotateY(${tiltRef.current.x}deg) scale(1.1)`,
+      transition: "transform 0.05s linear",
     };
   };
 
@@ -155,62 +164,44 @@ const Services = () => {
               key={index}
               className="
                 group overflow-hidden relative
+                transition-all duration-500 ease-out
                 border border-border bg-card
                 hover:border-primary/30
-                will-change-transform
               "
               style={{
-                animationDelay: `${index * 0.1}s`,
                 ...getCardTransform(index),
                 transformStyle: "preserve-3d",
-
-                // ⭐ Glow Position Vars
-                "--glow-x": `${mousePosition.x * 100}%`,
-                "--glow-y": `${mousePosition.y * 100}%`,
-
-                // ⭐ Soft spotlight glow with smooth transition
-                background:
-                  hoveredCard === index
-                    ? `radial-gradient(circle at var(--glow-x) var(--glow-y),
-                 rgba(255,255,255,0.25),
-                 rgba(167, 66, 255, 0.06),
-                 transparent 60%)`
-                    : "transparent",
-
-                transition: 'background 0.4s ease-out, border-color 0.3s ease',
               }}
               onMouseMove={(e) => handleMouseMove(e, index)}
               onMouseLeave={handleMouseLeave}
             >
-              {/* ⭐ Purple depth shadow with smooth transition */}
-              <div 
-                className="absolute inset-0 pointer-events-none transition-all duration-500 ease-out"
-                style={{
-                  boxShadow: hoveredCard === index 
-                    ? "0 40px 80px rgba(128, 0, 255, 0.35)" 
-                    : "0 0 0 rgba(128, 0, 255, 0)",
-                  borderRadius: "inherit",
-                  zIndex: -1,
-                  opacity: hoveredCard === index ? 1 : 0,
-                }}
-              />
+              {/** ⭐ Purple depth shadow */}
+              {hoveredCard === index && (
+                <div
+                  className="absolute inset-0 pointer-events-none transition-all duration-300"
+                  style={{
+                    boxShadow: "0 40px 80px rgba(128, 0, 255, 0.35)",
+                    borderRadius: "inherit",
+                    zIndex: -1,
+                  }}
+                />
+              )}
 
-              {/* ⭐ Glass reflection with smooth parallax */}
+              {/** ⭐ Glass reflection */}
               <div
-                className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-500 pointer-events-none"
+                className="absolute inset-0 opacity-0 group-hover:opacity-30 transition-opacity duration-300 pointer-events-none"
                 style={{
                   background: `linear-gradient(
-                    ${75 + (mousePosition.x - 0.5) * 30}deg,
+                    75deg,
                     transparent 0%,
                     rgba(255,255,255,0.35) 35%,
                     rgba(255,255,255,0.15) 50%,
                     transparent 80%
                   )`,
-                  transform: `translateX(${(mousePosition.x - 0.5) * 20}px) translateY(${(mousePosition.y - 0.5) * 10}px)`,
-                  transition: 'transform 0.3s ease-out',
                 }}
               />
 
+              {/** Image */}
               <div
                 className="relative h-48 overflow-hidden"
                 style={{ transform: "translateZ(20px)" }}

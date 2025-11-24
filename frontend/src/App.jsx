@@ -7,6 +7,8 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Admin from "./pages/Admin";
 import Technician from "./pages/Technician";
+import Dashboard from "./pages/Dashboard";
+import EditProfile from "./pages/EditProfile";
 import NotFound from "./pages/NotFound";
 import MouseGlowTrail from "./components/MouseGlowTrail";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -23,6 +25,22 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
+          <Route 
+            path="/dashboard" 
+            element={
+              <ProtectedRoute requireAuth>
+                <Dashboard />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/edit-profile" 
+            element={
+              <ProtectedRoute requireAuth>
+                <EditProfile />
+              </ProtectedRoute>
+            } 
+          />
           <Route 
             path="/admin" 
             element={

@@ -1,12 +1,24 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Header from "@/components/Header";
 import { ShieldCheck, Users, Wrench, User } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const Admin = () => {
   const [users, setUsers] = useState([]);
@@ -19,31 +31,32 @@ const Admin = () => {
 
   const fetchUsers = async () => {
     try {
-      // Get all user roles
-      const { data: userRoles, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('user_id, role');
+      // Get session token
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
 
-      if (rolesError) throw rolesError;
+      // Call Edge Function
+      const { data, error } = await supabase.functions.invoke(
+        "admin-list-users",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
 
-      // Get all users from auth (admin only)
-      const { data: { users: authUsers }, error: usersError } = await supabase.auth.admin.listUsers();
+      if (error) throw error;
 
-      if (usersError) throw usersError;
-
-      // Combine data
-      const usersWithRoles = authUsers.map(user => ({
-        id: user.id,
-        email: user.email || 'No email',
-        roles: userRoles?.filter(r => r.user_id === user.id).map(r => r.role) || []
-      }));
-
-      setUsers(usersWithRoles);
+      setUsers(data.users || []);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      console.error("Error fetching users:", error);
       toast({
         title: "Error",
-        description: "Failed to load users. Make sure you have admin privileges.",
+        description:
+          "Failed to load users. Make sure you have admin privileges.",
         variant: "destructive",
       });
     } finally {
@@ -54,7 +67,7 @@ const Admin = () => {
   const addRole = async (userId, role) => {
     try {
       const { error } = await supabase
-        .from('user_roles')
+        .from("user_roles")
         .insert({ user_id: userId, role });
 
       if (error) throw error;
@@ -77,10 +90,10 @@ const Admin = () => {
   const removeRole = async (userId, role) => {
     try {
       const { error } = await supabase
-        .from('user_roles')
+        .from("user_roles")
         .delete()
-        .eq('user_id', userId)
-        .eq('role', role);
+        .eq("user_id", userId)
+        .eq("role", role);
 
       if (error) throw error;
 
@@ -135,10 +148,14 @@ const Admin = () => {
                       <p className="font-medium">{user.email}</p>
                       <div className="flex gap-2 mt-2 flex-wrap">
                         {user.roles.map((role) => (
-                          <Badge key={role} variant="secondary" className="gap-1">
-                            {role === 'admin' && '👑'}
-                            {role === 'technician' && '🔧'}
-                            {role === 'user' && '👤'}
+                          <Badge
+                            key={role}
+                            variant="secondary"
+                            className="gap-1"
+                          >
+                            {role === "admin" && "👑"}
+                            {role === "technician" && "🔧"}
+                            {role === "user" && "👤"}
                             {role}
                             <button
                               onClick={() => removeRole(user.id, role)}
@@ -156,7 +173,9 @@ const Admin = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="admin">👑 Admin</SelectItem>
-                        <SelectItem value="technician">🔧 Technician</SelectItem>
+                        <SelectItem value="technician">
+                          🔧 Technician
+                        </SelectItem>
                         <SelectItem value="user">👤 User</SelectItem>
                       </SelectContent>
                     </Select>
