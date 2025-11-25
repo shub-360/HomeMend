@@ -4,10 +4,30 @@ import { supabase } from "@/lib/supabaseClient";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, ShoppingCart, Package, User, Mail, Calendar, Trash2, Sparkles, Wrench, Home, MapPin, Phone, Edit } from "lucide-react";
+import {
+  Loader2,
+  ShoppingCart,
+  Package,
+  User,
+  Mail,
+  Calendar,
+  Trash2,
+  Sparkles,
+  Wrench,
+  Home,
+  MapPin,
+  Phone,
+  Edit,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 
@@ -17,28 +37,74 @@ const Dashboard = () => {
   const [orders, setOrders] = useState([]);
   const [profile, setProfile] = useState(null);
   const [activeTab, setActiveTab] = useState("orders");
+  const [userId, setUserId] = useState(null);
 
+  // Load on first mount
   useEffect(() => {
     checkAuth();
   }, []);
 
+  // FIXED REALTIME LISTENER
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel("profile-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setProfile((prev) => ({
+              ...prev,
+              ...Object.fromEntries(
+                Object.entries(payload.new).filter(([k, v]) => v !== null)
+              ),
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [userId]);
+
+  // ⭐ FIXED — fetch profile AFTER userId is set
+  useEffect(() => {
+    if (userId) {
+      fetchProfile();
+    }
+  }, [userId]);
+
+  // FIX checkAuth()
   const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
     if (!session) {
       navigate("/auth");
       return;
     }
 
-    await Promise.all([fetchOrders(), fetchProfile()]);
+    setUserId(session.user.id);
+
+    // ❌ Removed fetchProfile() from here
+    await fetchOrders();
+
     setLoading(false);
   };
 
   const fetchOrders = async () => {
     const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false });
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false });
 
     if (error) {
       toast.error("Failed to load orders");
@@ -50,55 +116,52 @@ const Dashboard = () => {
   };
 
   const fetchProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (user) {
-      // Fetch profile data from profiles table
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      setProfile({
-        email: user.email,
-        created_at: user.created_at,
-        full_name: profileData?.full_name || null,
-        avatar_url: profileData?.avatar_url || null,
-        phone: profileData?.phone || null,
-        address: profileData?.address || null,
-        city: profileData?.city || null,
-        state: profileData?.state || null,
-      });
-    }
+    if (!user) return;
+
+    const { data: p } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    setProfile({
+      email: user.email,
+      created_at: user.created_at,
+      full_name: p?.full_name || null,
+      avatar_url: p?.avatar_url || null,
+      phone: p?.phone || null,
+      address: p?.address || null,
+      city: p?.city || null,
+      state: p?.state || null,
+    });
   };
 
   const deleteOrder = async (orderId) => {
-    const { error } = await supabase
-      .from('orders')
-      .delete()
-      .eq('id', orderId);
+    const { error } = await supabase.from("orders").delete().eq("id", orderId);
 
     if (error) {
       toast.error("Failed to delete order");
-      console.error(error);
       return;
     }
 
-    toast.success("Order deleted successfully");
+    toast.success("Order deleted");
     fetchOrders();
   };
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'pending':
-        return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
-      case 'completed':
-        return 'bg-green-500/10 text-green-500 border-green-500/20';
-      case 'cancelled':
-        return 'bg-red-500/10 text-red-500 border-red-500/20';
+      case "pending":
+        return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
+      case "completed":
+        return "bg-green-500/10 text-green-500 border-green-500/20";
+      case "cancelled":
+        return "bg-red-500/10 text-red-500 border-red-500/20";
       default:
-        return 'bg-muted text-muted-foreground';
+        return "bg-muted text-muted-foreground";
     }
   };
 
@@ -113,9 +176,10 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
+
       <main className="container mx-auto px-4 py-8">
         <h1 className="text-4xl font-bold mb-8">My Dashboard</h1>
-        
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full max-w-md grid-cols-2">
             <TabsTrigger value="orders" className="gap-2">
@@ -128,6 +192,7 @@ const Dashboard = () => {
             </TabsTrigger>
           </TabsList>
 
+          {/* ORDERS TAB */}
           <TabsContent value="orders" className="mt-6">
             <Card>
               <CardHeader>
@@ -149,11 +214,19 @@ const Dashboard = () => {
                       </div>
                       <Sparkles className="w-6 h-6 text-accent absolute -top-2 -right-2 animate-pulse" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2">You haven't booked any services yet</h3>
+
+                    <h3 className="text-xl font-semibold mb-2">
+                      You haven't booked any services yet
+                    </h3>
                     <p className="text-muted-foreground mb-6">
                       Ready to make your home happy?
                     </p>
-                    <Button onClick={() => navigate("/")} size="lg" className="gap-2">
+
+                    <Button
+                      onClick={() => navigate("/")}
+                      size="lg"
+                      className="gap-2"
+                    >
                       <Home className="w-4 h-4" />
                       Browse Services
                     </Button>
@@ -166,19 +239,27 @@ const Dashboard = () => {
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-2">
-                                <h3 className="font-semibold text-lg">{order.service_type}</h3>
+                                <h3 className="font-semibold text-lg">
+                                  {order.service_type}
+                                </h3>
                                 <Badge className={getStatusColor(order.status)}>
                                   {order.status}
                                 </Badge>
                               </div>
+
                               {order.description && (
-                                <p className="text-muted-foreground mb-3">{order.description}</p>
+                                <p className="text-muted-foreground mb-3">
+                                  {order.description}
+                                </p>
                               )}
+
                               <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
                                 {order.scheduled_date && (
                                   <div className="flex items-center gap-1">
                                     <Calendar className="w-4 h-4" />
-                                    {new Date(order.scheduled_date).toLocaleDateString()}
+                                    {new Date(
+                                      order.scheduled_date
+                                    ).toLocaleDateString()}
                                   </div>
                                 )}
                                 {order.price && (
@@ -188,6 +269,7 @@ const Dashboard = () => {
                                 )}
                               </div>
                             </div>
+
                             <Button
                               variant="ghost"
                               size="icon"
@@ -206,6 +288,7 @@ const Dashboard = () => {
             </Card>
           </TabsContent>
 
+          {/* PROFILE TAB */}
           <TabsContent value="profile" className="mt-6">
             <Card>
               <CardHeader>
@@ -217,45 +300,64 @@ const Dashboard = () => {
                   Your account details and personal information
                 </CardDescription>
               </CardHeader>
+
               <CardContent>
                 {profile && (
                   <div className="space-y-6">
-                    {/* Profile Header */}
+                    {/* PROFILE HEADER */}
                     <div className="flex items-center gap-4 pb-6 border-b">
                       <Avatar className="w-20 h-20">
-                        <AvatarImage src={profile.avatar_url || undefined} alt={profile.full_name || "User"} />
+                        <AvatarImage
+                          src={profile.avatar_url || undefined}
+                          alt={profile.full_name || "User"}
+                        />
                         <AvatarFallback className="text-2xl">
-                          {profile.full_name?.charAt(0)?.toUpperCase() || profile.email?.charAt(0)?.toUpperCase() || 'U'}
+                          {profile.full_name?.charAt(0)?.toUpperCase() ||
+                            profile.email?.charAt(0)?.toUpperCase() ||
+                            "U"}
                         </AvatarFallback>
                       </Avatar>
+
                       <div className="flex-1">
-                        <h2 className="text-2xl font-semibold">{profile.full_name || 'Your Name'}</h2>
+                        <h2 className="text-2xl font-semibold">
+                          {profile.full_name || "Your Name"}
+                        </h2>
                         <p className="text-muted-foreground">{profile.email}</p>
                         <p className="text-sm text-muted-foreground mt-1">
-                          Hey {profile.full_name?.split(' ')[0] || 'there'}, here's your activity!
+                          Hey {profile.full_name?.split(" ")[0] || "there"},
+                          here's your activity!
                         </p>
                       </div>
-                      <Button onClick={() => navigate("/edit-profile")} variant="outline" className="gap-2">
+
+                      <Button
+                        onClick={() => navigate("/edit-profile")}
+                        variant="outline"
+                        className="gap-2"
+                      >
                         <Edit className="w-4 h-4" />
                         Edit Profile
                       </Button>
                     </div>
 
-                    {/* Contact Information */}
+                    {/* CONTACT INFO */}
                     <div className="space-y-3">
                       <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                         <Mail className="w-5 h-5 text-muted-foreground" />
                         <div>
-                          <p className="text-sm text-muted-foreground">Email</p>
+                          <p className="text-sm text-muted-foreground">
+                            Email
+                          </p>
                           <p className="font-medium">{profile.email}</p>
                         </div>
                       </div>
-                      
+
                       {profile.phone && (
                         <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                           <Phone className="w-5 h-5 text-muted-foreground" />
                           <div>
-                            <p className="text-sm text-muted-foreground">Phone</p>
+                            <p className="text-sm text-muted-foreground">
+                              Phone
+                            </p>
                             <p className="font-medium">{profile.phone}</p>
                           </div>
                         </div>
@@ -265,11 +367,12 @@ const Dashboard = () => {
                         <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                           <MapPin className="w-5 h-5 text-muted-foreground" />
                           <div>
-                            <p className="text-sm text-muted-foreground">Address</p>
+                            <p className="text-sm text-muted-foreground">
+                              Address
+                            </p>
                             <p className="font-medium">
                               {profile.address}
-                              {profile.address && profile.city && ', '}
-                              {profile.city}
+                              {profile.city && `, ${profile.city}`}
                               {profile.state && `, ${profile.state}`}
                             </p>
                           </div>
@@ -279,9 +382,15 @@ const Dashboard = () => {
                       <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                         <Calendar className="w-5 h-5 text-muted-foreground" />
                         <div>
-                          <p className="text-sm text-muted-foreground">Member Since</p>
+                          <p className="text-sm text-muted-foreground">
+                            Member Since
+                          </p>
                           <p className="font-medium">
-                            {profile.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}
+                            {profile.created_at
+                              ? new Date(
+                                  profile.created_at
+                                ).toLocaleDateString()
+                              : "N/A"}
                           </p>
                         </div>
                       </div>
@@ -293,6 +402,7 @@ const Dashboard = () => {
           </TabsContent>
         </Tabs>
       </main>
+
       <Footer />
     </div>
   );

@@ -82,55 +82,74 @@ const EditProfile = () => {
     setLoading(false);
   };
 
+    
+
   const handleAvatarUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please upload an image file");
-      return;
+  setUploading(true);
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("User not found");
+
+    // ALWAYS correct path for RLS
+    const ext = file.name.split(".").pop();
+    const fileName = `${user.id}-${Date.now()}.${ext}`;
+    const filePath = `${user.id}/${fileName}`;
+
+    // ===== DELETE OLD AVATAR FILE (prevent duplicate) =====
+    // Get all files in user's folder
+    const { data: existingFiles } = await supabase.storage
+      .from("avatars")
+      .list(user.id + "/", { limit: 100 });
+
+    // Delete all old avatar files
+    if (existingFiles?.length > 0) {
+      const paths = existingFiles.map((f) => `${user.id}/${f.name}`);
+      await supabase.storage.from("avatars").remove(paths);
     }
 
-    // Validate file size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error("Image must be less than 2MB");
-      return;
-    }
+    // ===== UPLOAD NEW IMAGE =====
+    const { error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(filePath, file);
 
-    setUploading(true);
+    if (uploadError) throw uploadError;
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user found");
+    // ===== GET PUBLIC URL =====
+    const { data: { publicUrl } } = supabase.storage
+      .from("avatars")
+      .getPublicUrl(filePath);
 
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `${user.id}/${fileName}`;
+    // ===== UPDATE profiles TABLE =====
+    const { error: dbError } = await supabase.from("profiles").upsert({
+      user_id: user.id,
+      avatar_url: publicUrl,
+    });
 
-      // Upload to storage (you'll need to create the avatars bucket)
-      const { error: uploadError, data } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, file);
+    if (dbError) throw dbError;
 
-      if (uploadError) throw uploadError;
+    // ===== UPDATE AUTH METADATA =====
+    await supabase.auth.updateUser({
+      data: { avatar_url: publicUrl },
+    });
 
-      // Get public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("avatars").getPublicUrl(filePath);
+    // ===== REFRESH SESSION =====
+    await supabase.auth.refreshSession();
 
-      setProfile({ ...profile, avatar_url: publicUrl });
-      toast.success("Avatar uploaded successfully");
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to upload avatar");
-    } finally {
-      setUploading(false);
-    }
-  };
+    // ===== UPDATE LOCAL STATE =====
+    setProfile((prev) => ({ ...prev, avatar_url: publicUrl }));
+
+    toast.success("Avatar updated successfully!");
+  } catch (err) {
+    console.error(err);
+    toast.error("Failed to upload avatar.");
+  } finally {
+    setUploading(false);
+  }
+};
 
   const handleSave = async () => {
     setSaving(true);
@@ -149,7 +168,7 @@ const EditProfile = () => {
       if (error) throw error;
 
       toast.success("Profile updated successfully");
-      navigate("/dashboard");
+      navigate("/dashboard", { replace: true });
     } catch (error) {
       console.error(error);
       toast.error("Failed to update profile");
@@ -169,6 +188,7 @@ const EditProfile = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
+
       <main className="container mx-auto px-4 py-8">
         <Button
           variant="ghost"
@@ -189,8 +209,9 @@ const EditProfile = () => {
               Update your personal information and contact details
             </CardDescription>
           </CardHeader>
+
           <CardContent className="space-y-6">
-            {/* Avatar Section */}
+            {/* Avatar */}
             <div className="flex flex-col items-center gap-4 pb-6 border-b">
               <Avatar className="w-24 h-24">
                 <AvatarImage src={profile.avatar_url} alt={profile.full_name} />
@@ -198,13 +219,14 @@ const EditProfile = () => {
                   {profile.full_name?.charAt(0)?.toUpperCase() || "U"}
                 </AvatarFallback>
               </Avatar>
+
               <div className="text-center">
                 <Label htmlFor="avatar" className="cursor-pointer">
                   <div className="flex items-center gap-2 text-sm text-primary hover:underline">
                     {uploading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Uploading...
+                        Uploading…
                       </>
                     ) : (
                       <>
@@ -213,6 +235,7 @@ const EditProfile = () => {
                       </>
                     )}
                   </div>
+
                   <Input
                     id="avatar"
                     type="file"
@@ -234,7 +257,6 @@ const EditProfile = () => {
                 <Label htmlFor="full_name">Full Name</Label>
                 <Input
                   id="full_name"
-                  placeholder="John Doe"
                   value={profile.full_name}
                   onChange={(e) =>
                     setProfile({ ...profile, full_name: e.target.value })
@@ -249,8 +271,6 @@ const EditProfile = () => {
                 </Label>
                 <Input
                   id="phone"
-                  type="tel"
-                  placeholder="+1 (555) 123-4567"
                   value={profile.phone}
                   onChange={(e) =>
                     setProfile({ ...profile, phone: e.target.value })
@@ -259,7 +279,7 @@ const EditProfile = () => {
               </div>
             </div>
 
-            {/* Address Section */}
+            {/* Address */}
             <div className="space-y-4 pt-6 border-t">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <MapPin className="w-4 h-4" />
@@ -270,7 +290,6 @@ const EditProfile = () => {
                 <Label htmlFor="address">Street Address</Label>
                 <Input
                   id="address"
-                  placeholder="123 Main Street"
                   value={profile.address}
                   onChange={(e) =>
                     setProfile({ ...profile, address: e.target.value })
@@ -283,7 +302,6 @@ const EditProfile = () => {
                   <Label htmlFor="city">City</Label>
                   <Input
                     id="city"
-                    placeholder="New York"
                     value={profile.city}
                     onChange={(e) =>
                       setProfile({ ...profile, city: e.target.value })
@@ -295,7 +313,6 @@ const EditProfile = () => {
                   <Label htmlFor="state">State</Label>
                   <Input
                     id="state"
-                    placeholder="NY"
                     value={profile.state}
                     onChange={(e) =>
                       setProfile({ ...profile, state: e.target.value })
@@ -309,7 +326,6 @@ const EditProfile = () => {
                   <Label htmlFor="zip_code">ZIP Code</Label>
                   <Input
                     id="zip_code"
-                    placeholder="10001"
                     value={profile.zip_code}
                     onChange={(e) =>
                       setProfile({ ...profile, zip_code: e.target.value })
@@ -321,7 +337,6 @@ const EditProfile = () => {
                   <Label htmlFor="country">Country</Label>
                   <Input
                     id="country"
-                    placeholder="United States"
                     value={profile.country}
                     onChange={(e) =>
                       setProfile({ ...profile, country: e.target.value })
@@ -331,7 +346,7 @@ const EditProfile = () => {
               </div>
             </div>
 
-            {/* Save Button */}
+            {/* Save */}
             <div className="pt-6">
               <Button
                 onClick={handleSave}
@@ -355,6 +370,7 @@ const EditProfile = () => {
           </CardContent>
         </Card>
       </main>
+
       <Footer />
     </div>
   );
