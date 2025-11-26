@@ -83,8 +83,7 @@ const EditProfile = () => {
   };
 
     
-
-  const handleAvatarUpload = async (e) => {
+const handleAvatarUpload = async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
@@ -94,62 +93,49 @@ const EditProfile = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("User not found");
 
-    // ALWAYS correct path for RLS
+    // CLEAN user ID
+    const cleanUserId = user.id.trim();
+
     const ext = file.name.split(".").pop();
-    const fileName = `${user.id}-${Date.now()}.${ext}`;
-    const filePath = `${user.id}/${fileName}`;
+    const fileName = `${Date.now()}.${ext}`;
 
-    // ===== DELETE OLD AVATAR FILE (prevent duplicate) =====
-    // Get all files in user's folder
-    const { data: existingFiles } = await supabase.storage
-      .from("avatars")
-      .list(user.id + "/", { limit: 100 });
+    // CORRECT path for RLS
+    const filePath = `${cleanUserId}/${fileName}`;
 
-    // Delete all old avatar files
-    if (existingFiles?.length > 0) {
-      const paths = existingFiles.map((f) => `${user.id}/${f.name}`);
-      await supabase.storage.from("avatars").remove(paths);
-    }
+    console.log("UPLOAD PATH =", JSON.stringify(filePath));
+    console.log("USER ID     =", JSON.stringify(cleanUserId));
 
-    // ===== UPLOAD NEW IMAGE =====
+    // Upload the file
     const { error: uploadError } = await supabase.storage
       .from("avatars")
       .upload(filePath, file);
 
     if (uploadError) throw uploadError;
 
-    // ===== GET PUBLIC URL =====
-    const { data: { publicUrl } } = supabase.storage
+    // Get URL
+    const { data: { publicUrl } } = supabase
+      .storage
       .from("avatars")
       .getPublicUrl(filePath);
 
-    // ===== UPDATE profiles TABLE =====
-    const { error: dbError } = await supabase.from("profiles").upsert({
-      user_id: user.id,
-      avatar_url: publicUrl,
-    });
+    // Update profile
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ avatar_url: publicUrl })
+      .eq("user_id", cleanUserId);
 
-    if (dbError) throw dbError;
+    if (profileError) throw profileError;
 
-    // ===== UPDATE AUTH METADATA =====
-    await supabase.auth.updateUser({
-      data: { avatar_url: publicUrl },
-    });
-
-    // ===== REFRESH SESSION =====
-    await supabase.auth.refreshSession();
-
-    // ===== UPDATE LOCAL STATE =====
-    setProfile((prev) => ({ ...prev, avatar_url: publicUrl }));
-
-    toast.success("Avatar updated successfully!");
+    setProfile(prev => ({ ...prev, avatar_url: publicUrl }));
+    toast.success("Avatar updated!");
   } catch (err) {
-    console.error(err);
-    toast.error("Failed to upload avatar.");
+    console.error("UPLOAD ERROR:", err.message, err);
+    toast.error("Failed to upload avatar");
   } finally {
     setUploading(false);
   }
 };
+
 
   const handleSave = async () => {
     setSaving(true);
