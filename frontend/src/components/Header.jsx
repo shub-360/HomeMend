@@ -1,6 +1,8 @@
+// FINAL HEADER — combines old working logic + your new UI + real-time fixes
+
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Wrench, LogOut, ShieldCheck, Briefcase, User } from "lucide-react";
 import BookingDialog from "./BookingDialog";
@@ -20,56 +22,38 @@ const Header = () => {
   const navigate = useNavigate();
   const [bookingOpen, setBookingOpen] = useState(false);
   const [session, setSession] = useState(null);
-  const [userEmail, setUserEmail] = useState("");
-  const [userName, setUserName] = useState("");
-  const [profile, setProfile] = useState(null); // <- profile from profiles table
+  const [profile, setProfile] = useState(null);
+
   const { isAdmin, isTechnician, roles, loading } = useUserRole();
 
-  // Fetch session + profile on mount
+  // ---------------------------
+  // Load session ONCE
+  // ---------------------------
   useEffect(() => {
     let mounted = true;
 
-    const load = async () => {
+    const loadSession = async () => {
       const {
-        data: { session: currentSession },
+        data: { session: s },
       } = await supabase.auth.getSession();
-
       if (!mounted) return;
-      setSession(currentSession || null);
 
-      if (currentSession?.user) {
-        const u = currentSession.user;
-        setUserEmail(u.email || "");
-        setUserName(
-          u.user_metadata?.full_name ||
-            u.email?.split("@")[0] ||
-            "User"
-        );
-
-        // fetch profile row from profiles table
-        await fetchProfile(u.id);
-      }
+      setSession(s);
+      if (s?.user) fetchProfile(s.user.id);
     };
 
-    load();
+    loadSession();
 
-    // subscribe to auth changes (sign in / sign out)
     const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, nextSession) => {
-        setSession(nextSession || null);
-        if (nextSession?.user) {
-          const u = nextSession.user;
-          setUserEmail(u.email || "");
-          setUserName(
-            u.user_metadata?.full_name ||
-              u.email?.split("@")[0] ||
-              "User"
-          );
-          await fetchProfile(u.id);
+      (_event, newSession) => {
+        if (!mounted) return;
+
+        setSession(newSession);
+
+        if (newSession?.user) {
+          fetchProfile(newSession.user.id);
         } else {
           setProfile(null);
-          setUserEmail("");
-          setUserName("");
         }
       }
     );
@@ -80,74 +64,76 @@ const Header = () => {
     };
   }, []);
 
-  // Realtime subscription to profiles changes for the logged-in user
-  useEffect(() => {
-    if (!session?.user?.id) return;
+  // ---------------------------
+  // Fetch profile ONCE
+  // ---------------------------
+  const fetchProfile = async (userId) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    const userId = session.user.id;
+    if (!error && data) {
+      setProfile(data);
+    }
+  };
+
+  // ---------------------------
+  // REALTIME profile updates
+  // ---------------------------
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
 
     const channel = supabase
-      .channel(`profile-updates-${userId}`)
+      .channel(`profile-${userId}`)
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "UPDATE",
           schema: "public",
           table: "profiles",
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          if (payload.new) {
-            // Merge the new profile values
-            setProfile((prev) => ({ ...prev, ...payload.new }));
-          }
+          setProfile((prev) => ({ ...prev, ...payload.new }));
         }
       )
       .subscribe();
 
     return () => {
-      // clean up
       supabase.removeChannel(channel);
     };
   }, [session?.user?.id]);
 
-  const fetchProfile = async (userId) => {
-    try {
-      if (!userId) return;
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (error) {
-        console.error("Failed to fetch profile:", error);
-        return;
-      }
-      if (data) setProfile(data);
-    } catch (err) {
-      console.error("fetchProfile error:", err);
-    }
-  };
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    navigate("/");
-    // profile/session state will be cleared by auth listener
-  };
-
-  // Choose avatar: prefer DB profile.avatar_url, fallback to auth metadata
-  const avatarSrc =
-    profile?.avatar_url ||
-    session?.user?.user_metadata?.avatar_url ||
-    undefined;
+  // ---------------------------
+  // Display info
+  // ---------------------------
+  const avatarSrc = profile?.avatar_url || undefined;
 
   const displayName =
-    profile?.full_name ||
-    userName ||
-    session?.user?.user_metadata?.full_name ||
-    session?.user?.email?.split("@")[0] ||
-    "User";
+    profile?.full_name || session?.user?.email?.split("@")[0] || "User";
+
+  const userEmail = session?.user?.email || "";
+
+  // ---------------------------
+  // Sign Out
+  // ---------------------------
+  const handleSignOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error(error);
+
+      setSession(null);
+      setProfile(null);
+      supabase.removeAllChannels?.();
+
+      navigate("/");
+    } catch (err) {
+      console.error("Sign out failed: ", err);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/10 bg-background/70 backdrop-blur-lg supports-[backdrop-filter]:bg-background/60 shadow-sm">
@@ -177,6 +163,7 @@ const Header = () => {
           >
             About
           </a>
+
           {isAdmin && (
             <Button
               variant="ghost"
@@ -188,6 +175,7 @@ const Header = () => {
               Admin Panel
             </Button>
           )}
+
           {isTechnician && (
             <Button
               variant="ghost"
@@ -205,8 +193,8 @@ const Header = () => {
           {session ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-10 w-10 rounded-full p-0">
-                  <Avatar className="h-10 w-10 border-2 border-primary/20 hover:border-primary/40 transition-colors">
+                <Button variant="ghost" className="h-10 w-10 p-0 rounded-full">
+                  <Avatar className="h-10 w-10 border border-primary/30">
                     <AvatarImage src={avatarSrc} alt={displayName} />
                     <AvatarFallback className="bg-primary/10 text-primary font-semibold">
                       {displayName.charAt(0).toUpperCase()}
@@ -215,84 +203,101 @@ const Header = () => {
                 </Button>
               </DropdownMenuTrigger>
 
-              <DropdownMenuContent className="w-72 bg-background/95 backdrop-blur-sm" align="end" forceMount>
+              <DropdownMenuContent
+                className="w-72 bg-background/95 backdrop-blur-sm"
+                align="end"
+              >
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-3 p-2">
                     <div className="flex items-center gap-3">
-                      <Avatar className="h-12 w-12 border-2 border-primary/20">
+                      <Avatar className="h-12 w-12 border-primary/20 border">
                         <AvatarImage src={avatarSrc} alt={displayName} />
-                        <AvatarFallback className="bg-primary/10 text-primary font-semibold text-lg">
+                        <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
                           {displayName.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex flex-col space-y-1">
-                        <p className="text-sm font-semibold leading-none">{displayName}</p>
-                        <p className="text-xs text-muted-foreground leading-none">{userEmail}</p>
+
+                      <div>
+                        <p className="text-sm font-semibold leading-none">
+                          {displayName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {userEmail}
+                        </p>
                       </div>
                     </div>
 
                     {!loading && roles.length > 0 && (
                       <div className="flex gap-1.5 flex-wrap">
                         {roles.map((role) => (
-                          <Badge key={role} variant="secondary" className="text-xs">
-                            {role === 'admin' && '👑 Admin'}
-                            {role === 'technician' && '🔧 Technician'}
-                            {role === 'user' && '👤 Customer'}
+                          <Badge
+                            key={role}
+                            variant="secondary"
+                            className="text-xs"
+                          >
+                            {role === "admin" && "👑 Admin"}
+                            {role === "technician" && "🔧 Technician"}
+                            {role === "user" && "👤 Customer"}
                           </Badge>
                         ))}
                       </div>
                     )}
-
-                    <p className="text-xs text-muted-foreground">
-                      Hey {displayName.split(" ")[0]}, here's your activity!
-                    </p>
                   </div>
                 </DropdownMenuLabel>
 
                 <DropdownMenuSeparator />
 
-                <DropdownMenuItem onClick={() => navigate("/dashboard")} className="cursor-pointer">
-                  <User className="mr-2 h-4 w-4" />
-                  <span>View Dashboard</span>
+                <DropdownMenuItem onClick={() => navigate("/dashboard")}>
+                  <User className="w-4 h-4 mr-2" /> Dashboard
                 </DropdownMenuItem>
 
-                <DropdownMenuItem onClick={() => navigate("/edit-profile")} className="cursor-pointer">
-                  <User className="mr-2 h-4 w-4" />
-                  <span>Edit Profile</span>
+                <DropdownMenuItem onClick={() => navigate("/edit-profile")}>
+                  <User className="w-4 h-4 mr-2" /> Edit Profile
                 </DropdownMenuItem>
 
+                <DropdownMenuSeparator />
                 {isAdmin && (
-                  <DropdownMenuItem onClick={() => navigate("/admin")} className="cursor-pointer">
+                  <DropdownMenuItem
+                    onClick={() => navigate("/admin")}
+                    className="cursor-pointer"
+                  >
                     <ShieldCheck className="mr-2 h-4 w-4" />
                     <span>Admin Panel</span>
                   </DropdownMenuItem>
                 )}
 
                 {isTechnician && (
-                  <DropdownMenuItem onClick={() => navigate("/technician")} className="cursor-pointer">
+                  <DropdownMenuItem
+                    onClick={() => navigate("/technician")}
+                    className="cursor-pointer"
+                  >
                     <Briefcase className="mr-2 h-4 w-4" />
                     <span>My Jobs</span>
                   </DropdownMenuItem>
                 )}
 
-                <DropdownMenuSeparator />
-
-                <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign Out</span>
+                <DropdownMenuItem
+                  onClick={handleSignOut}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <LogOut className="w-4 h-4 mr-2" /> Sign Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
             <>
-              <Button variant="ghost" size="sm" className="hidden sm:flex" onClick={() => navigate("/auth")}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate("/auth")}
+                className="hidden sm:flex"
+              >
                 Sign In
               </Button>
-
               <Button
                 size="sm"
                 onClick={() => setBookingOpen(true)}
-                className="bg-primary hover:bg-primary-glow shadow-[var(--shadow-primary)]"
+                className="bg-primary hover:bg-primary-glow"
               >
                 Get Started
               </Button>

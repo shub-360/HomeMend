@@ -1,10 +1,4 @@
-[?25l[?2004h
-                                                                                                
-  >  1. jhyfasclijwtzwwtrhxb [name: HomeMend, org: igchvgmfjzgybjgnukev, region: ap-northeast-2]
-                                                                                                
-                                                                                                
-    ↑/k up • ↓/j down • / filter • q quit • ? more                                              
-                                                                                                [6A [J[2K[?2004l[?25h[?1002l[?1003l[?1006l------------------------------------------------------------
+------------------------------------------------------------
 -- 1) Create profiles table safely
 ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.profiles (

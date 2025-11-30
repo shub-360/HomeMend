@@ -39,47 +39,80 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState("orders");
   const [userId, setUserId] = useState(null);
 
-  // Load on first mount
-  useEffect(() => {
-    checkAuth();
-  }, []);
+ // Dashboard.jsx — Single unified init
+useEffect(() => {
+  let mounted = true;
 
-  // FIXED REALTIME LISTENER
-  useEffect(() => {
-    if (!userId) return;
+  const init = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
 
-    const channel = supabase
-      .channel("profile-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "profiles",
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          if (payload.new) {
-            setProfile((prev) => ({
-              ...prev,
-              ...Object.fromEntries(
-                Object.entries(payload.new).filter(([k, v]) => v !== null)
-              ),
-            }));
-          }
-        }
-      )
-      .subscribe();
+      if (!mounted) return;
 
-    return () => supabase.removeChannel(channel);
-  }, [userId]);
+      if (!session) {
+        navigate("/auth");
+        return;
+      }
 
-  // ⭐ FIXED — fetch profile AFTER userId is set
-  useEffect(() => {
-    if (userId) {
-      fetchProfile();
+      const uid = session.user.id;
+      setUserId(uid);
+
+      // Fetch everything in parallel
+      await Promise.all([
+        fetchProfile(uid),
+        fetchOrders(uid),
+        fetchCartItems(uid),
+      ]);
+
+      if (mounted) setLoading(false);
+    } catch (err) {
+      console.error("Dashboard init error:", err);
+      if (mounted) setLoading(false);
     }
-  }, [userId]);
+  };
+
+  init();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
+
+
+  // Dashboard.jsx — realtime updates
+useEffect(() => {
+  if (!userId) return;
+
+  const channel = supabase
+    .channel(`dashboard-profile-${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "UPDATE",
+        schema: "public",
+        table: "profiles",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        if (payload.new) {
+          setProfile((prev) => ({
+            ...prev,
+            ...payload.new,
+          }));
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    try {
+      supabase.removeChannel(channel);
+    } catch (e) {}
+  };
+}, [userId]);
+
+
+  
 
   // FIX checkAuth()
   const checkAuth = async () => {
@@ -115,30 +148,37 @@ const Dashboard = () => {
     setOrders(data || []);
   };
 
-  const fetchProfile = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return;
-
-    const { data: p } = await supabase
+  const fetchProfile = async (uid) => {
+  try {
+    const { data: p, error } = await supabase
       .from("profiles")
       .select("*")
-      .eq("user_id", user.id)
+      .eq("user_id", uid)
       .maybeSingle();
 
+    if (error) {
+      console.error("fetchProfile error:", error);
+      return;
+    }
+
+    // Load auth info (email & created_at)
+    const { data: { user } } = await supabase.auth.getUser();
+
     setProfile({
-      email: user.email,
-      created_at: user.created_at,
-      full_name: p?.full_name || null,
+      email: user?.email || null,
+      created_at: user?.created_at || null,
+      full_name: p?.full_name || "",
       avatar_url: p?.avatar_url || null,
-      phone: p?.phone || null,
-      address: p?.address || null,
-      city: p?.city || null,
-      state: p?.state || null,
+      phone: p?.phone || "",
+      address: p?.address || "",
+      city: p?.city || "",
+      state: p?.state || "",
     });
-  };
+  } catch (err) {
+    console.error("fetchProfile exception:", err);
+  }
+};
+
 
   const deleteOrder = async (orderId) => {
     const { error } = await supabase.from("orders").delete().eq("id", orderId);

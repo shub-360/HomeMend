@@ -1,22 +1,44 @@
+// ProtectedRoute.jsx — FINAL PATCHED VERSION
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { useUserRole } from "@/hooks/useUserRole";
-import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { Loader2 } from "lucide-react";
+import { useUserRole } from "@/hooks/useUserRole";
 
 const ProtectedRoute = ({ children, requiredRole, requireAuth = true }) => {
-  const { hasRole, loading, roles } = useUserRole();
+  const { hasRole, loading: rolesLoading } = useUserRole();
   const [isAuthenticated, setIsAuthenticated] = useState(null);
 
   useEffect(() => {
-    import("@/lib/supabaseClient").then(({ supabase }) => {
-      supabase.auth.getSession().then(({ data: { session } }) => {
+    let mounted = true;
+
+    const init = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!mounted) return;
         setIsAuthenticated(!!session);
-      });
-    });
+      } catch (err) {
+        console.error("ProtectedRoute init error:", err);
+        setIsAuthenticated(false);
+      }
+    };
+
+    init();
+
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => {
+        if (!mounted) return;
+        setIsAuthenticated(!!nextSession);
+      }
+    );
+
+    return () => {
+      mounted = false;
+      try { listener?.subscription?.unsubscribe?.(); } catch (e) {}
+    };
   }, []);
 
-  if (loading || isAuthenticated === null) {
+  if (isAuthenticated === null || rolesLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -24,25 +46,15 @@ const ProtectedRoute = ({ children, requiredRole, requireAuth = true }) => {
     );
   }
 
-  if (requireAuth && !isAuthenticated) {
-    return <Navigate to="/auth" replace />;
-  }
+  if (requireAuth && !isAuthenticated) return <Navigate to="/auth" replace />;
 
   if (requiredRole && !hasRole(requiredRole)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
-        <h1 className="text-3xl font-bold text-foreground mb-4">Access Denied</h1>
-        <p className="text-muted-foreground mb-4">
+        <h1 className="text-3xl font-bold">Access Denied</h1>
+        <p className="text-muted-foreground">
           You don't have permission to access this page.
         </p>
-        <p className="text-sm text-muted-foreground">
-          Required role: <span className="font-semibold">{requiredRole}</span>
-        </p>
-        {roles.length > 0 && (
-          <p className="text-sm text-muted-foreground">
-            Your roles: <span className="font-semibold">{roles.join(", ")}</span>
-          </p>
-        )}
       </div>
     );
   }

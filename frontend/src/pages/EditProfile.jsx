@@ -82,8 +82,7 @@ const EditProfile = () => {
     setLoading(false);
   };
 
-    
-const handleAvatarUpload = async (e) => {
+  const handleAvatarUpload = async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
@@ -93,32 +92,33 @@ const handleAvatarUpload = async (e) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("User not found");
 
-    // CLEAN user ID
     const cleanUserId = user.id.trim();
-
     const ext = file.name.split(".").pop();
     const fileName = `${Date.now()}.${ext}`;
-
-    // CORRECT path for RLS
     const filePath = `${cleanUserId}/${fileName}`;
 
-    console.log("UPLOAD PATH =", JSON.stringify(filePath));
-    console.log("USER ID     =", JSON.stringify(cleanUserId));
-
-    // Upload the file
+    // 1️⃣ Upload to Storage
     const { error: uploadError } = await supabase.storage
       .from("avatars")
-      .upload(filePath, file);
+      .upload(filePath, file, { upsert: true });
 
     if (uploadError) throw uploadError;
 
-    // Get URL
-    const { data: { publicUrl } } = supabase
+    // 2️⃣ Get Public URL
+    const { data: urlData } = supabase
       .storage
       .from("avatars")
       .getPublicUrl(filePath);
 
-    // Update profile
+    const publicUrl = urlData?.publicUrl || urlData?.publicURL;
+
+    // 3️⃣ INSTANT UI UPDATE (Optimistic)
+    setProfile((prev) => ({ ...prev, avatar_url: publicUrl }));
+
+    // Toast immediately (not after all updates)
+    toast.success("Avatar uploaded! Saving...");
+
+    // 4️⃣ Save to Profiles table
     const { error: profileError } = await supabase
       .from("profiles")
       .update({ avatar_url: publicUrl })
@@ -126,10 +126,9 @@ const handleAvatarUpload = async (e) => {
 
     if (profileError) throw profileError;
 
-    setProfile(prev => ({ ...prev, avatar_url: publicUrl }));
-    toast.success("Avatar updated!");
+    toast.success("Profile updated!");
   } catch (err) {
-    console.error("UPLOAD ERROR:", err.message, err);
+    console.error(err);
     toast.error("Failed to upload avatar");
   } finally {
     setUploading(false);
@@ -137,6 +136,7 @@ const handleAvatarUpload = async (e) => {
 };
 
 
+  // EditProfile.jsx — handleSave (replace existing)
   const handleSave = async () => {
     setSaving(true);
 
@@ -146,18 +146,29 @@ const handleAvatarUpload = async (e) => {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("No user found");
 
-      const { error } = await supabase.from("profiles").upsert({
+      // Use UPSERT so row is created if missing
+      const payload = {
         user_id: user.id,
         ...profile,
-      });
+      };
+
+      const { data: upserted, error } = await supabase
+        .from("profiles")
+        .upsert(payload, { onConflict: "user_id" })
+        .select()
+        .maybeSingle();
 
       if (error) throw error;
 
-      toast.success("Profile updated successfully");
+      // Immediately update local UI state (important)
+      if (upserted) setProfile((prev) => ({ ...prev, ...upserted }));
+
+      toast.success("Profile updated!");
+      // navigate back but keep state consistent
       navigate("/dashboard", { replace: true });
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to update profile");
+    } catch (err) {
+      console.error("Save error:", err);
+      toast.error("Failed to save changes");
     } finally {
       setSaving(false);
     }
