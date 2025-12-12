@@ -395,6 +395,7 @@ const Dashboard = () => {
                         </CardContent>
                       </Card>
                     ))}
+
                   </div>
                 )}
               </CardContent>
@@ -493,6 +494,30 @@ const Dashboard = () => {
                           </CardContent>
                         </Card>
                       ))}
+                       {/* Cart Summary */}
+                    <Card className="mt-6 bg-gradient-to-r from-primary/5 to-accent/5 border-primary/20">
+                      <CardContent className="pt-6">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                          <div className="text-center sm:text-left">
+                            <p className="text-sm text-muted-foreground mb-1">
+                              {cartItems.length} {cartItems.length === 1 ? 'service' : 'services'} in cart
+                            </p>
+                            <div className="text-3xl font-bold text-primary">
+                              ₹{cartItems.reduce((sum, item) => sum + (item.price || 0), 0).toFixed(2)}
+                            </div>
+                          </div>
+                          <Button 
+                            onClick={checkoutCart} 
+                            size="lg" 
+                            variant="prominent"
+                            className="w-full sm:w-auto text-lg px-8 py-6"
+                          >
+                            <ShoppingCart className="w-5 h-5" />
+                            Proceed to Checkout
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
                     </div>
 
                     {/* Checkout Section */}
