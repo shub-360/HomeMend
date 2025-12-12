@@ -27,6 +27,7 @@ import {
   MapPin,
   Phone,
   Edit,
+  Clock,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
@@ -35,108 +36,91 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
+  const [cartItems, setCartItems] = useState([]);
   const [profile, setProfile] = useState(null);
   const [activeTab, setActiveTab] = useState("orders");
   const [userId, setUserId] = useState(null);
 
- // Dashboard.jsx — Single unified init
-useEffect(() => {
-  let mounted = true;
+  // Single unified init
+  useEffect(() => {
+    let mounted = true;
 
-  const init = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
+    const init = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!mounted) return;
+        if (!mounted) return;
 
-      if (!session) {
-        navigate("/auth");
-        return;
-      }
-
-      const uid = session.user.id;
-      setUserId(uid);
-
-      // Fetch everything in parallel
-      await Promise.all([
-        fetchProfile(uid),
-        fetchOrders(uid),
-        fetchCartItems(uid),
-      ]);
-
-      if (mounted) setLoading(false);
-    } catch (err) {
-      console.error("Dashboard init error:", err);
-      if (mounted) setLoading(false);
-    }
-  };
-
-  init();
-
-  return () => {
-    mounted = false;
-  };
-}, []);
-
-
-  // Dashboard.jsx — realtime updates
-useEffect(() => {
-  if (!userId) return;
-
-  const channel = supabase
-    .channel(`dashboard-profile-${userId}`)
-    .on(
-      "postgres_changes",
-      {
-        event: "UPDATE",
-        schema: "public",
-        table: "profiles",
-        filter: `user_id=eq.${userId}`,
-      },
-      (payload) => {
-        if (payload.new) {
-          setProfile((prev) => ({
-            ...prev,
-            ...payload.new,
-          }));
+        if (!session) {
+          navigate("/auth");
+          return;
         }
+
+        const uid = session.user.id;
+        setUserId(uid);
+
+        // Fetch everything in parallel
+        await Promise.all([
+          fetchProfile(uid),
+          fetchOrders(uid),
+          fetchCartItems(uid),
+        ]);
+
+        if (mounted) setLoading(false);
+      } catch (err) {
+        console.error("Dashboard init error:", err);
+        if (mounted) setLoading(false);
       }
-    )
-    .subscribe();
+    };
 
-  return () => {
-    try {
-      supabase.removeChannel(channel);
-    } catch (e) {}
-  };
-}, [userId]);
+    init();
 
+    return () => {
+      mounted = false;
+    };
+  }, [navigate]);
 
-  
+  // Realtime updates for profile
+  useEffect(() => {
+    if (!userId) return;
 
-  // FIX checkAuth()
-  const checkAuth = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const channel = supabase
+      .channel(`dashboard-profile-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setProfile((prev) => ({
+              ...prev,
+              ...payload.new,
+            }));
+          }
+        }
+      )
+      .subscribe();
 
-    if (!session) {
-      navigate("/auth");
-      return;
-    }
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        console.error("Error removing channel:", e);
+      }
+    };
+  }, [userId]);
 
-    setUserId(session.user.id);
-
-    // ❌ Removed fetchProfile() from here
-    await fetchOrders();
-
-    setLoading(false);
-  };
-
-  const fetchOrders = async () => {
+  const fetchOrders = async (uid) => {
     const { data, error } = await supabase
       .from("orders")
       .select("*")
+      .eq("user_id", uid || userId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -149,36 +133,116 @@ useEffect(() => {
   };
 
   const fetchProfile = async (uid) => {
-  try {
-    const { data: p, error } = await supabase
-      .from("profiles")
+    try {
+      const { data: p, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (error) {
+        console.error("fetchProfile error:", error);
+        return;
+      }
+
+      // Load auth info (email & created_at)
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      setProfile({
+        email: user?.email || null,
+        created_at: user?.created_at || null,
+        full_name: p?.full_name || "",
+        avatar_url: p?.avatar_url || null,
+        phone: p?.phone || "",
+        address: p?.address || "",
+        city: p?.city || "",
+        state: p?.state || "",
+      });
+    } catch (err) {
+      console.error("fetchProfile exception:", err);
+    }
+  };
+
+  const fetchCartItems = async (uid) => {
+    const { data, error } = await supabase
+      .from("cart_items")
       .select("*")
-      .eq("user_id", uid)
-      .maybeSingle();
+      .eq("user_id", uid || userId)
+      .order("created_at", { ascending: false });
 
     if (error) {
-      console.error("fetchProfile error:", error);
+      toast.error("Failed to load cart items");
+      console.error(error);
       return;
     }
 
-    // Load auth info (email & created_at)
-    const { data: { user } } = await supabase.auth.getUser();
+    setCartItems(data || []);
+  };
 
-    setProfile({
-      email: user?.email || null,
-      created_at: user?.created_at || null,
-      full_name: p?.full_name || "",
-      avatar_url: p?.avatar_url || null,
-      phone: p?.phone || "",
-      address: p?.address || "",
-      city: p?.city || "",
-      state: p?.state || "",
-    });
-  } catch (err) {
-    console.error("fetchProfile exception:", err);
-  }
-};
+  const deleteCartItem = async (cartId) => {
+    const { error } = await supabase
+      .from("cart_items")
+      .delete()
+      .eq("id", cartId);
 
+    if (error) {
+      toast.error("Failed to remove item from cart");
+      console.error(error);
+      return;
+    }
+
+    toast.success("Item removed from cart");
+    fetchCartItems();
+  };
+
+  const checkoutCart = async () => {
+    if (cartItems.length === 0) {
+      toast.error("Your cart is empty");
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Convert cart items to orders
+    const ordersToInsert = cartItems.map((item) => ({
+      user_id: user.id,
+      service_type: item.service_type,
+      description: item.description,
+      price: item.price,
+      scheduled_date: item.scheduled_date,
+      status: "pending",
+    }));
+
+    const { error: orderError } = await supabase
+      .from("orders")
+      .insert(ordersToInsert);
+
+    if (orderError) {
+      toast.error("Failed to process checkout");
+      console.error(orderError);
+      return;
+    }
+
+    // Clear cart after successful checkout
+    const { error: deleteError } = await supabase
+      .from("cart_items")
+      .delete()
+      .eq("user_id", user.id);
+
+    if (deleteError) {
+      console.error(deleteError);
+    }
+
+    toast.success("Orders placed successfully!");
+    fetchCartItems();
+    fetchOrders();
+    setActiveTab("orders");
+  };
 
   const deleteOrder = async (orderId) => {
     const { error } = await supabase.from("orders").delete().eq("id", orderId);
@@ -221,10 +285,19 @@ useEffect(() => {
         <h1 className="text-4xl font-bold mb-8">My Dashboard</h1>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-md grid-cols-3">
             <TabsTrigger value="orders" className="gap-2">
               <Package className="w-4 h-4" />
               Orders
+            </TabsTrigger>
+            <TabsTrigger value="cart" className="gap-2">
+              <ShoppingCart className="w-4 h-4" />
+              Cart
+              {cartItems.length > 0 && (
+                <Badge className="ml-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+                  {cartItems.length}
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="profile" className="gap-2">
               <User className="w-4 h-4" />
@@ -304,7 +377,7 @@ useEffect(() => {
                                 )}
                                 {order.price && (
                                   <div className="font-medium text-foreground">
-                                    ${order.price.toFixed(2)}
+                                    ₹{order.price.toFixed(2)}
                                   </div>
                                 )}
                               </div>
@@ -323,6 +396,127 @@ useEffect(() => {
                       </Card>
                     ))}
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* CART TAB */}
+          <TabsContent value="cart" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5" />
+                  Shopping Cart
+                </CardTitle>
+                <CardDescription>
+                  Review your cart and proceed to checkout
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {cartItems.length === 0 ? (
+                  <div className="text-center py-16">
+                    <div className="relative inline-block mb-6">
+                      <div className="absolute inset-0 bg-primary/10 rounded-full blur-xl" />
+                      <div className="relative bg-gradient-to-br from-primary/20 to-accent/20 p-6 rounded-full">
+                        <ShoppingCart className="w-12 h-12 text-primary" />
+                      </div>
+                      <Sparkles className="w-6 h-6 text-accent absolute -top-2 -right-2 animate-pulse" />
+                    </div>
+                    <h3 className="text-xl font-semibold mb-2">Your cart is empty</h3>
+                    <p className="text-muted-foreground mb-6">
+                      Add services to your cart to get started
+                    </p>
+                    <Button onClick={() => navigate("/")} size="lg" className="gap-2">
+                      <Home className="w-4 h-4" />
+                      Browse Services
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-4">
+                      {cartItems.map((item) => (
+                        <Card key={item.id} className="border-border/50">
+                          <CardContent className="pt-6">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <h3 className="font-semibold text-lg">{item.service_type}</h3>
+                                </div>
+                                {item.customer_name && (
+                                  <p className="text-sm text-muted-foreground mb-1">
+                                    <User className="w-3 h-3 inline mr-1" />
+                                    {item.customer_name}
+                                  </p>
+                                )}
+                                {item.customer_phone && (
+                                  <p className="text-sm text-muted-foreground mb-1">
+                                    <Phone className="w-3 h-3 inline mr-1" />
+                                    {item.customer_phone}
+                                  </p>
+                                )}
+                                {item.customer_address && (
+                                  <p className="text-sm text-muted-foreground mb-1">
+                                    <MapPin className="w-3 h-3 inline mr-1" />
+                                    {item.customer_address}
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mt-3">
+                                  {item.scheduled_date && (
+                                    <div className="flex items-center gap-1">
+                                      <Calendar className="w-4 h-4" />
+                                      {new Date(item.scheduled_date).toLocaleDateString()}
+                                    </div>
+                                  )}
+                                  {item.preferred_time && (
+                                    <div className="flex items-center gap-1">
+                                      <Clock className="w-4 h-4" />
+                                      {item.preferred_time}
+                                    </div>
+                                  )}
+                                  {item.price && (
+                                    <div className="font-medium text-foreground">
+                                      ₹{item.price.toFixed(2)}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => deleteCartItem(item.id)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+
+                    {/* Checkout Section */}
+                    <div className="mt-6 pt-6 border-t">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-lg font-semibold">Total Items:</span>
+                        <span className="text-lg font-bold">{cartItems.length}</span>
+                      </div>
+                      <div className="flex items-center justify-between mb-6">
+                        <span className="text-xl font-semibold">Total Amount:</span>
+                        <span className="text-xl font-bold text-primary">
+                          ₹{cartItems.reduce((sum, item) => sum + (item.price || 0), 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <Button
+                        onClick={checkoutCart}
+                        size="lg"
+                        className="w-full gap-2"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        Proceed to Checkout
+                      </Button>
+                    </div>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -384,9 +578,7 @@ useEffect(() => {
                       <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                         <Mail className="w-5 h-5 text-muted-foreground" />
                         <div>
-                          <p className="text-sm text-muted-foreground">
-                            Email
-                          </p>
+                          <p className="text-sm text-muted-foreground">Email</p>
                           <p className="font-medium">{profile.email}</p>
                         </div>
                       </div>

@@ -13,6 +13,7 @@ export const Constants = {
 export const DatabaseSchema = {
   public: {
     Tables: {
+      
       user_roles: {
         columns: {
           created_at: 'string',

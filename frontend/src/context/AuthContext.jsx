@@ -10,7 +10,7 @@ export const AuthProvider = ({ children }) => {
 
   // Initial Session
   useEffect(() => {
-    const getSession = async () => {
+    const getSession = async () => {  
       const { data } = await supabase.auth.getSession();
       const sessionUser = data?.session?.user || null;
       setUser(sessionUser);
