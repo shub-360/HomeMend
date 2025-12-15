@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 
 const Footer = () => {
   return (
-    <footer className="border-t border-border/40 bg-[hsl(var(--footer-background))] relative before:absolute before:inset-0 before:bg-gradient-to-b before:from-primary/5 before:to-transparent before:pointer-events-none">
+     <footer id="about" className="border-t border-border/40 bg-[hsl(var(--footer-background))] relative before:absolute before:inset-0 before:bg-gradient-to-b before:from-primary/5 before:to-transparent before:pointer-events-none">
       <div className="container px-4 py-16">
         {/* Trust Badges */}
         <div className="flex flex-wrap justify-center items-center gap-8 mb-12 pb-12 border-b border-border/40">

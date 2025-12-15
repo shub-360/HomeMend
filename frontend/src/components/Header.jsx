@@ -1,5 +1,3 @@
-// FINAL HEADER — combines old working logic + your new UI + real-time fixes
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -151,18 +149,32 @@ const Header = () => {
         </button>
 
         <nav className="hidden md:flex items-center gap-6 flex-1 ml-8">
-          <a
-            href="#services"
+          <button
+            onClick={() => {
+              navigate("/");
+              setTimeout(() => {
+                document
+                  .getElementById("services")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              }, 100);
+            }}
             className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
           >
             Services
-          </a>
-          <a
-            href="#about"
+          </button>
+          <button
+            onClick={() => {
+              navigate("/");
+              setTimeout(() => {
+                document
+                  .getElementById("about")
+                  ?.scrollIntoView({ behavior: "smooth" });
+              }, 100);
+            }}
             className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
           >
             About
-          </a>
+          </button>
 
           {isAdmin && (
             <Button

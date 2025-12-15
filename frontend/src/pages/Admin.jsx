@@ -10,23 +10,23 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Header from "@/components/Header";
-import { ShieldCheck, Users, Wrench, User } from "lucide-react";
+import { ShieldCheck, Users, Wrench, User, CalendarCheck, DollarSign, Clock, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { format } from "date-fns";
 
 const Admin = () => {
   const [users, setUsers] = useState([]);
+   const [orders, setOrders] = useState([]);
+  const [stats, setStats] = useState({ totalBookings: 0, pendingOrders: 0, completedOrders: 0, totalRevenue: 0 });
+
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
     fetchUsers();
+    fetchOrders();
   }, []);
 
   const fetchUsers = async () => {
@@ -63,6 +63,60 @@ const Admin = () => {
       setLoading(false);
     }
   };
+  const fetchOrders = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    const ordersData = data || [];
+    setOrders(ordersData);
+    
+    // Calculate stats
+    const totalBookings = ordersData.length;
+    const pendingOrders = ordersData.filter(o => o.status === 'pending').length;
+    const completedOrders = ordersData.filter(o => o.status === 'completed').length;
+    const totalRevenue = ordersData
+      .filter(o => o.status === 'completed')
+      .reduce((sum, o) => sum + (o.price || 0), 0);
+    
+    setStats({ totalBookings, pendingOrders, completedOrders, totalRevenue });
+  } catch (error) {
+    console.error('Error fetching orders:', error);
+    toast({
+      title: "Error",
+      description: "Failed to load orders.",
+      variant: "destructive",
+    });
+  }
+};
+
+const updateOrderStatus = async (orderId, newStatus) => {
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('id', orderId);
+    
+    if (error) throw error;
+    
+    toast({
+      title: "Success",
+      description: `Order status updated to ${newStatus}.`,
+    });
+    
+    fetchOrders();
+  } catch (error) {
+    toast({
+      title: "Error",
+      description: error.message || "Failed to update order status",
+      variant: "destructive",
+    });
+  }
+};
 
   const addRole = async (userId, role) => {
     try {
@@ -111,6 +165,15 @@ const Admin = () => {
       });
     }
   };
+   const getStatusBadgeVariant = (status) => {
+    switch (status) {
+      case 'completed': return 'default';
+      case 'pending': return 'secondary';
+      case 'in_progress': return 'outline';
+      case 'cancelled': return 'destructive';
+      default: return 'secondary';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -121,8 +184,122 @@ const Admin = () => {
             <ShieldCheck className="w-10 h-10 text-primary" />
             Admin Dashboard
           </h1>
-          <p className="text-muted-foreground">Manage users and their roles</p>
+          <p className="text-muted-foreground">Manage bookings, sales, and users</p>
         </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Bookings</CardTitle>
+              <CalendarCheck className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.totalBookings}</div>
+              <p className="text-xs text-muted-foreground">All time bookings</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Pending Orders</CardTitle>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-yellow-600">{stats.pendingOrders}</div>
+              <p className="text-xs text-muted-foreground">Awaiting action</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Completed Orders</CardTitle>
+              <CheckCircle className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats.completedOrders}</div>
+              <p className="text-xs text-muted-foreground">Successfully completed</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-primary">${stats.totalRevenue.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">From completed orders</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Orders/Sales Management Table */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarCheck className="w-5 h-5" />
+              Sales & Booking Management
+            </CardTitle>
+            <CardDescription>
+              View and manage all bookings and orders
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {orders.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">No orders found.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Service</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Scheduled Date</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {orders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell className="font-medium">{order.service_type}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">{order.description || '-'}</TableCell>
+                        <TableCell>
+                          {order.scheduled_date 
+                            ? format(new Date(order.scheduled_date), 'MMM dd, yyyy')
+                            : '-'}
+                        </TableCell>
+                        <TableCell>${order.price?.toFixed(2) || '0.00'}</TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusBadgeVariant(order.status)}>
+                            {order.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Select 
+                            value={order.status}
+                            onValueChange={(value) => updateOrderStatus(order.id, value)}
+                          >
+                            <SelectTrigger className="w-[130px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pending">Pending</SelectItem>
+                              <SelectItem value="in_progress">In Progress</SelectItem>
+                              <SelectItem value="completed">Completed</SelectItem>
+                              <SelectItem value="cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* User Management */}
 
         <Card>
           <CardHeader>

@@ -32,7 +32,7 @@ const services = [
     image: tvImg,
     title: "TV & Home Theatre",
     description:
-      "Professional setup and repair for entertainment systems and home cinema.",
+      "Professional setup and repair for entertainment  and home cinema.",
     highlights: ["Professional Setup", "All Brands", "Calibration Included"],
   },
   {
@@ -138,7 +138,7 @@ const Services = () => {
   };
 
   return (
-    <section className="py-20 bg-gradient-to-b from-background to-accent/30">
+     <section id="services" className="py-20 bg-gradient-to-b from-background to-accent/30">
       <div className="container px-4">
         <div className="text-center space-y-4 mb-16 animate-ffade-in">
           <h2 className="text-4xl md:text-5xl font-bold">
