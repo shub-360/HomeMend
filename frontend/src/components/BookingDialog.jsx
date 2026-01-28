@@ -57,7 +57,7 @@ const bookingSchema = z.object({
   phone: z
     .string()
     .trim()
-    .regex(/^[0-9]{10}$/, "Phone number must be 10 digits"),
+    .regex(/^[0-9]{10}$/, "Phone number must be exactly 10 digits"),
   address: z
     .string()
     .trim()
