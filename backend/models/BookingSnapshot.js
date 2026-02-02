@@ -13,6 +13,21 @@ const BookingSnapshotSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+
+  // ✅ ADD THESE
+  scheduledDate: {
+    type: Date,
+    required: true,
+  },
+  preferredTime: {
+    type: String,
+    required: true,
+  },
+  address: {
+    type: String,
+    required: true,
+  },
+
   status: {
     type: String,
     default: "pending",
@@ -23,7 +38,6 @@ const BookingSnapshotSchema = new mongoose.Schema({
   },
 });
 
-const BookingSnapshot = mongoose.models.BookingSnapshot
-  || mongoose.model("BookingSnapshot", BookingSnapshotSchema);
-
-module.exports = BookingSnapshot;
+module.exports =
+  mongoose.models.BookingSnapshot ||
+  mongoose.model("BookingSnapshot", BookingSnapshotSchema);

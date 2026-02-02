@@ -48,6 +48,16 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient";
 
+const loadRazorpay = () => {
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
 const bookingSchema = z.object({
   fullName: z
     .string()
@@ -57,7 +67,7 @@ const bookingSchema = z.object({
   phone: z
     .string()
     .trim()
-    .regex(/^[0-9]{10}$/, "Phone number must be exactly 10 digits"),
+    .regex(/^[0-9]{10}$/, "Phone number must be 10 digits"),
   address: z
     .string()
     .trim()
@@ -280,17 +290,121 @@ const BookingDialog = ({ open, onOpenChange, preselectedCategory }) => {
     reset();
   };
 
-  const onSubmit = (data) => {
-    toast.success("Booking Confirmed!", {
-      description: `Your appointment for ${
-        selectedService?.service
-      } has been scheduled for ${format(data.date, "PPP")} at ${data.time}`,
-    });
-    setTimeout(() => {
+  const onSubmit = async (data) => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      toast.error("Please login to continue");
+      return;
+    }
+    if (!selectedService?.category?.price) {
+      toast.error("Service price not found. Please try again.");
+      return;
+    }
+
+    try {
+      const priceString = selectedService.category.price.replace("₹", "");
+      const priceNumber = Number(priceString);
+
+      // 1️⃣ Load Razorpay SDK
+      const res = await loadRazorpay();
+      if (!res) {
+        toast.error("Razorpay SDK failed to load");
+        return;
+      }
+
+      // 2️⃣ Create order from backend - ONLY SEND AMOUNT
+      const orderRes = await fetch(
+        "http://localhost:4000/api/payments/create-order",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: priceNumber, // ✅ ONLY send amount
+          }),
+        },
+      );
+
+      const orderData = await orderRes.json();
+
+      console.log("Order response:", orderData); // For debugging
+
+      if (!orderData.success) {
+        toast.error("Failed to create payment order");
+        console.error("Order creation failed:", orderData);
+        return;
+      }
+
+      // 3️⃣ Open Razorpay popup
+      const options = {
+        key: "rzp_test_SASQiPOIdXdhH0",
+        amount: priceNumber * 100, // ✅ Amount in paise (Razorpay requirement)
+        currency: "INR",
+        name: "HomeMend",
+        description: selectedService?.service,
+        order_id: orderData.order.id,
+
+        handler: async function (response) {
+          // 4️⃣ After payment success → confirm booking
+          try {
+            const bookingRes = await fetch(
+              "http://localhost:4000/api/bookings/confirm",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  userId: user.id,
+                  serviceId: selectedService?.service,
+                  price: priceNumber,
+                  scheduledDate: data.date.toISOString(), // ✅ Convert Date to ISO string
+                  preferredTime: data.time,
+                  address: data.address,
+                }),
+              },
+            );
+
+            const bookingData = await bookingRes.json();
+
+            if (bookingData.success) {
+              toast.success("Booking Confirmed!");
+              onOpenChange(false);
+              handleBack();
+            } else {
+              toast.error("Booking failed after payment");
+              console.error("Booking error:", bookingData);
+            }
+          } catch (error) {
+            console.error("Booking confirmation error:", error);
+            toast.error("Failed to confirm booking");
+          }
+        },
+
+        prefill: {
+          name: data.fullName,
+          contact: data.phone,
+        },
+
+        theme: {
+          color: "#7C3AED",
+        },
+      };
+
+      // Close booking dialog first
       onOpenChange(false);
-      handleBack();
-    }, 2000);
+
+      // Small delay so dialog unmounts cleanly
+      setTimeout(() => {
+        const paymentObject = new window.Razorpay(options);
+        paymentObject.open();
+      }, 300);
+    } catch (error) {
+      console.error("Payment error:", error);
+      toast.error("Payment failed");
+    }
   };
+
   const handleAddToCart = async (data) => {
     if (!selectedService) return;
 
@@ -403,7 +517,7 @@ const BookingDialog = ({ open, onOpenChange, preselectedCategory }) => {
                     ))}
                   </div>
                 </div>
-              )
+              ),
             )}
           </div>
         ) : (
@@ -518,7 +632,7 @@ const BookingDialog = ({ open, onOpenChange, preselectedCategory }) => {
                       variant="outline"
                       className={cn(
                         "w-full justify-start text-left font-normal",
-                        !selectedDate && "text-muted-foreground"
+                        !selectedDate && "text-muted-foreground",
                       )}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
@@ -557,7 +671,7 @@ const BookingDialog = ({ open, onOpenChange, preselectedCategory }) => {
                       variant="outline"
                       className={cn(
                         "w-full justify-start text-left font-normal",
-                        !selectedTime && "text-muted-foreground"
+                        !selectedTime && "text-muted-foreground",
                       )}
                     >
                       <Clock className="mr-2 h-4 w-4" />

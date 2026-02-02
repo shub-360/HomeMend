@@ -21,9 +21,11 @@ app.get("/api/health", (req, res) => {
 
 const PORT = process.env.PORT || 4000;
 const bookingRoutes = require("./routes/bookings");
-app.use("/api/bookings", bookingRoutes);
+app.use("/api/bookings", bookingRoutes); 
 
 
+const paymentRoutes = require("./routes/payments");
+app.use("/api/payments", paymentRoutes);
 
 app.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`); 
